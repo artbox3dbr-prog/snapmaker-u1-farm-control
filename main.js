@@ -1,11 +1,12 @@
 // U1 Farm Control — Electron ana süreç
 // Yazıcıları Moonraker API üzerinden yoklar, her yazıcı için sistem tepsisinde
 // yüzde gösteren dinamik bir ikon tutar.
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
 const I18N = require('./renderer/i18n.js');
+const bulk = require('./lib/bulk.js');
 
 const POLL_MS = 2000;
 const DEFAULT_CONFIG = {
@@ -13,6 +14,8 @@ const DEFAULT_CONFIG = {
   trayPerPrinter: true,
   notifications: true,
   startMinimized: false,
+  stagger: 20,        // seconds between print starts in a bulk print (avoids power spikes)
+  uploadParallel: 4,  // simultaneous uploads in a bulk send
 };
 
 let win = null;
@@ -44,7 +47,7 @@ async function api(host, pathName, opts = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), opts.timeout || 4000);
   try {
-    const r = await fetch(`http://${host}:7125${pathName}`, { method: opts.method || 'GET', signal: ctrl.signal });
+    const r = await fetch(`http://${bulk.hostPort(host)}${pathName}`, { method: opts.method || 'GET', signal: ctrl.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
     return j.result;
@@ -202,8 +205,11 @@ function blankIcon() {
   return nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png')).resize({ width: 16, height: 16 });
 }
 
+// Acima de 8 impressoras um ícone por máquina lota a bandeja: usa um ícone-resumo do farm
+const TRAY_PER_MAX = 8;
+const perPrinterTray = () => config.trayPerPrinter && config.printers.length > 0 && config.printers.length <= TRAY_PER_MAX;
 function ensureTrays() {
-  const want = config.trayPerPrinter && config.printers.length ? config.printers.map((p) => p.id) : ['__main'];
+  const want = perPrinterTray() ? config.printers.map((p) => p.id) : ['__main'];
   for (const id of Object.keys(trays)) {
     if (!want.includes(id)) { trays[id].destroy(); delete trays[id]; }
   }
@@ -220,7 +226,7 @@ function ensureTrays() {
 function updateTrays() {
   ensureTrays();
   const menu = buildMenu();
-  if (config.trayPerPrinter && config.printers.length) {
+  if (perPrinterTray()) {
     for (const p of config.printers) {
       const t = trays[p.id];
       if (!t) continue;
@@ -327,17 +333,9 @@ ipcMain.handle('printer:action', async (_e, { id, action, value }) => {
       const st = await api(p.host, '/printer/objects/query?print_stats&toolhead');
       const ps = st.status.print_stats?.state;
       if (ps === 'printing' || ps === 'paused') throw new Error(t('err.unloadPrinting'));
-      const lines = [];
-      if ((st.status.toolhead?.homed_axes || '') !== 'xyz') lines.push('G28');
-      lines.push('AUTO_FEEDING_BATCH ACTION=START');
-      for (const i of list) {
-        const n = Number(i);
-        if (!(n >= 0 && n <= 3)) throw new Error(t('err.badHead'));
-        lines.push(`AUTO_FEEDING_BATCH ACTION=DOING EXTRUDER=${n} UNLOAD=1 STAGE=prepare`);
-        lines.push(`AUTO_FEEDING_BATCH ACTION=DOING EXTRUDER=${n} UNLOAD=1 STAGE=doing`);
-      }
-      lines.push('AUTO_FEEDING_BATCH');
-      return api(p.host, '/printer/gcode/script?script=' + encodeURIComponent(lines.join('\n')), { method: 'POST', timeout: 15 * 60 * 1000 });
+      let script;
+      try { script = bulk.unloadScript(list, (st.status.toolhead?.homed_axes || '') === 'xyz'); } catch { throw new Error(t('err.badHead')); }
+      return api(p.host, '/printer/gcode/script?script=' + encodeURIComponent(script), { method: 'POST', timeout: 15 * 60 * 1000 });
     }
     case 'cooldown': return gcode('TURN_OFF_HEATERS');
     case 'gcode': return gcode(String(value));
@@ -347,6 +345,238 @@ ipcMain.handle('printer:action', async (_e, { id, action, value }) => {
     default: throw new Error(t('err.unknown', { a: action }));
   }
 });
+
+// ---------------- Operações em massa (estilo Bambu Farm Manager) ----------------
+// Cada operação vira um "job" com um item por impressora; o progresso vai para a UI via 'bulk:job'.
+const jobs = {};        // jobId -> job
+const busyIds = {};     // printerId -> jobId (uma operação longa por impressora de cada vez)
+const IDLE = ['standby', 'complete', 'cancelled'];
+let jobSeq = 0;
+
+function emitJob(job) {
+  job.updated = Date.now();
+  if (win && !win.isDestroyed()) win.webContents.send('bulk:job', job);
+}
+function setItem(job, id, patch) {
+  Object.assign(job.items[id], patch);
+  emitJob(job);
+}
+async function freshState(p) {
+  const r = await bulk.api(p.host, '/printer/objects/query?print_stats&toolhead&webhooks&print_task_config');
+  const st = r.status;
+  const klippy = st.webhooks?.state;
+  return { state: klippy !== 'ready' ? 'error' : (st.print_stats?.state || 'standby'), st };
+}
+const homed = (st) => (st.toolhead?.homed_axes || '') === 'xyz';
+
+// Pré-checagem para exibir na UI quem pode receber a operação (sem rede: usa o último estado)
+function eligibility(op, p) {
+  const s = states[p.id];
+  const st = stateOf(s);
+  if (st === 'offline') return { ok: false, why: t('bk.why.offline') };
+  if (busyIds[p.id]) return { ok: false, why: t('bk.why.busyJob') };
+  if (['unload', 'filament', 'print'].includes(op) && !IDLE.includes(st)) return { ok: false, why: t('bk.why.notIdle', { s: stateName(st) }) };
+  if (op === 'pause' && st !== 'printing') return { ok: false, why: t('bk.why.notPrinting') };
+  if (op === 'resume' && st !== 'paused') return { ok: false, why: t('bk.why.notPaused') };
+  if (op === 'cancel' && !['printing', 'paused'].includes(st)) return { ok: false, why: t('bk.why.notPrinting') };
+  return { ok: true };
+}
+
+async function doUnload(job, p, params) {
+  const { state, st } = await freshState(p);
+  if (!IDLE.includes(state)) throw new Error(t('bk.why.notIdle', { s: stateName(state) }));
+  const ptc = st.print_task_config || {};
+  let heads = params.heads === 'loaded'
+    ? [0, 1, 2, 3].filter((i) => ptc.filament_exist?.[i] !== false)
+    : params.heads.filter((i) => ptc.filament_exist?.[i] !== false);
+  if (!heads.length) return t('bk.nothingToUnload');
+  setItem(job, p.id, { msg: t('bk.unloading', { list: heads.map((i) => 'T' + i).join(', ') }) });
+  await bulk.gcode(p.host, bulk.unloadScript(heads, homed(st)), 15 * 60 * 1000);
+  return t('bk.unloaded', { list: heads.map((i) => 'T' + i).join(', ') });
+}
+
+async function doFilament(job, p, params) {
+  const { state } = await freshState(p);
+  if (!IDLE.includes(state)) throw new Error(t('bk.why.notIdle', { s: stateName(state) }));
+  const done = [];
+  for (const [head, f] of Object.entries(params.heads)) {
+    setItem(job, p.id, { msg: `T${head}…` });
+    await bulk.gcode(p.host, bulk.filamentScript(head, f, params.force), 20000);
+    done.push('T' + head);
+  }
+  return t('bk.filamentSet', { list: done.join(', ') });
+}
+
+async function checkPrint(p, info, check) {
+  const { state, st } = await freshState(p);
+  if (!IDLE.includes(state)) throw new Error(t('bk.why.notIdle', { s: stateName(state) }));
+  if (check && info) {
+    const mm = bulk.filamentMismatches(info, st.print_task_config);
+    if (mm.length) throw new Error(mm.map((m) => m.kind === 'empty' ? t('bk.mm.empty', { i: m.head })
+      : m.kind === 'type' ? t('bk.mm.type', { i: m.head, want: m.want, have: m.have }) : t('bk.mm.head', { i: m.head })).join(' · '));
+  }
+}
+
+// Envio (e impressão opcional) de arquivos do PC: uploads em paralelo, inícios escalonados
+async function doSendJob(job, printers, params) {
+  const files = params.files;
+  const toStart = [];
+  await bulk.runPool(printers, config.uploadParallel || 4, async (p) => {
+    try {
+      for (let k = 0; k < files.length; k++) {
+        const f = files[k];
+        setItem(job, p.id, { status: 'running', msg: t('bk.uploading', { f: f.name, k: k + 1, n: files.length }), pct: 0 });
+        await bulk.uploadFile(p.host, f.path, {
+          onProgress: (pct) => { job.items[p.id].pct = pct; throttleEmit(job); },
+        });
+      }
+      metaCache = {};
+      if (params.start) { setItem(job, p.id, { msg: t('bk.waitStart'), pct: 100 }); toStart.push(p); }
+      else setItem(job, p.id, { status: 'ok', msg: t('bk.uploaded'), pct: 100 });
+    } catch (e) {
+      setItem(job, p.id, { status: 'error', msg: String(e.message || e) });
+    }
+  });
+  if (params.start) await staggeredStart(job, toStart, files[0].name, files[0].info, params);
+}
+
+async function doPrintExistingJob(job, printers, params) {
+  let info = null;
+  // metadados do Moonraker (tipo de filamento) para a checagem, se houver
+  try {
+    const m = await bulk.api(printers[0].host, '/server/files/metadata?filename=' + encodeURIComponent(params.filename));
+    const types = String(m?.filament_type || '').split(/[;,]/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+    if (types.length === 1) info = { types, used: [0] };
+  } catch {}
+  await staggeredStart(job, printers, params.filename, info, params);
+}
+
+async function staggeredStart(job, printers, filename, info, params) {
+  const gap = Math.max(0, Number(params.stagger ?? config.stagger ?? 0)) * 1000;
+  let lastStart = 0;
+  for (const p of printers) {
+    if (job.cancelRequested) { setItem(job, p.id, { status: 'skipped', msg: t('bk.stopped') }); continue; }
+    try {
+      setItem(job, p.id, { status: 'running', msg: t('bk.starting') });
+      await checkPrint(p, info, params.checkFilament);      // recusa antes de esperar
+      const wait = lastStart ? gap - (Date.now() - lastStart) : 0;
+      if (wait > 0) {
+        setItem(job, p.id, { msg: t('bk.waitStagger', { s: Math.ceil(wait / 1000) }) });
+        await bulk.sleep(wait);
+        if (job.cancelRequested) { setItem(job, p.id, { status: 'skipped', msg: t('bk.stopped') }); continue; }
+        await checkPrint(p, info, params.checkFilament);    // alguém pode ter mexido durante a espera
+      }
+      await bulk.api(p.host, '/printer/print/start?filename=' + encodeURIComponent(filename), { method: 'POST', timeout: 20000 });
+      lastStart = Date.now();
+      setItem(job, p.id, { status: 'ok', msg: t('bk.started') });
+    } catch (e) {
+      setItem(job, p.id, { status: 'error', msg: String(e.message || e) });
+    }
+  }
+}
+
+let emitTimer = null;
+function throttleEmit(job) {
+  if (emitTimer) return;
+  emitTimer = setTimeout(() => { emitTimer = null; emitJob(job); }, 400);
+}
+
+const SIMPLE = {
+  pause: (p) => bulk.api(p.host, '/printer/print/pause', { method: 'POST', timeout: 15000 }),
+  resume: (p) => bulk.api(p.host, '/printer/print/resume', { method: 'POST', timeout: 15000 }),
+  cancel: (p) => bulk.api(p.host, '/printer/print/cancel', { method: 'POST', timeout: 15000 }),
+  cooldown: (p) => bulk.gcode(p.host, 'TURN_OFF_HEATERS'),
+  lightOn: (p) => bulk.gcode(p.host, 'SET_LED LED=cavity_led RED=1 GREEN=1 BLUE=1 WHITE=1'),
+  lightOff: (p) => bulk.gcode(p.host, 'SET_LED LED=cavity_led RED=0 GREEN=0 BLUE=0 WHITE=0'),
+};
+const LONG_OPS = ['unload', 'filament', 'send', 'print'];
+
+async function runJob(job, printers, params) {
+  const long = LONG_OPS.includes(job.op);
+  if (long) for (const p of printers) busyIds[p.id] = job.id;
+  try {
+    if (job.op === 'send') return await doSendJob(job, printers, params);
+    if (job.op === 'print') return await doPrintExistingJob(job, printers, params);
+    const fn = job.op === 'unload' ? doUnload : job.op === 'filament' ? doFilament : (jb, p) => SIMPLE[job.op](p).then(() => t('bk.done'));
+    // unload/filament: cada impressora independente; limite evita picos de consumo (aquecimento)
+    const limit = job.op === 'unload' ? Math.max(1, Number(params.parallel) || 10) : 20;
+    await bulk.runPool(printers, limit, async (p) => {
+      if (job.cancelRequested) return setItem(job, p.id, { status: 'skipped', msg: t('bk.stopped') });
+      setItem(job, p.id, { status: 'running', msg: t('bk.running') });
+      try {
+        const msg = await fn(job, p, params);
+        setItem(job, p.id, { status: 'ok', msg: msg || t('bk.done') });
+      } catch (e) {
+        setItem(job, p.id, { status: 'error', msg: String(e.message || e) });
+      }
+    });
+  } finally {
+    if (long) for (const p of printers) if (busyIds[p.id] === job.id) delete busyIds[p.id];
+    job.done = true;
+    emitJob(job);
+    if (long && config.notifications && Notification.isSupported()) {
+      const vals = Object.values(job.items);
+      const ok = vals.filter((x) => x.status === 'ok').length;
+      new Notification({ title: t('bk.n.done', { op: t('bk.op.' + job.op) }), body: t('bk.n.body', { ok, n: vals.length }), icon: path.join(__dirname, 'assets', 'icon.png') }).show();
+    }
+  }
+}
+
+ipcMain.handle('bulk:eligibility', (_e, { op, ids }) => {
+  const out = {};
+  for (const id of ids) { const p = config.printers.find((x) => x.id === id); if (p) out[id] = eligibility(op, p); }
+  return out;
+});
+ipcMain.handle('bulk:pickFiles', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: t('bk.pickTitle'), properties: ['openFile', 'multiSelections'],
+    filters: [{ name: 'G-code', extensions: ['gcode', 'gco', 'g'] }],
+  });
+  if (r.canceled) return [];
+  return r.filePaths.map((fp) => ({ path: fp, name: path.basename(fp), info: bulk.parseGcodeInfo(fp) }));
+});
+// Arquivos presentes nas impressoras selecionadas: nome → em quais impressoras existe
+ipcMain.handle('bulk:filesOn', async (_e, ids) => {
+  const map = {};
+  const ps = config.printers.filter((p) => ids.includes(p.id));
+  await bulk.runPool(ps, 10, async (p) => {
+    const list = await bulk.api(p.host, '/server/files/list?root=gcodes', { timeout: 8000 });
+    for (const f of list) {
+      if (!/\.(gcode|gco|g)$/i.test(f.path)) continue;
+      const m = map[f.path] || (map[f.path] = { path: f.path, ids: [], modified: 0, size: f.size });
+      m.ids.push(p.id);
+      m.modified = Math.max(m.modified, f.modified || 0);
+    }
+  });
+  return Object.values(map).sort((a, b) => b.modified - a.modified);
+});
+ipcMain.handle('bulk:run', (_e, { op, ids, params = {} }) => {
+  const known = ['unload', 'filament', 'send', 'print', ...Object.keys(SIMPLE)];
+  if (!known.includes(op)) throw new Error(t('err.unknown', { a: op }));
+  if (op === 'send' && !params.files?.length) throw new Error(t('bk.noFile'));
+  if (op === 'print' && !params.filename) throw new Error(t('bk.noFile'));
+  // sends that also start a print need the same rules as a print
+  const checkOp = op === 'send' && params.start ? 'print' : op;
+  const id = 'j' + Date.now() + '_' + (++jobSeq);
+  const job = { id, op, created: Date.now(), done: false, items: {}, title: params.title || '' };
+  const run = [];
+  for (const pid of ids) {
+    const p = config.printers.find((x) => x.id === pid);
+    if (!p) continue;
+    // Envio sem impressão: não precisa estar ociosa
+    const el = op === 'send' && !params.start ? (stateOf(states[p.id]) === 'offline' ? { ok: false, why: t('bk.why.offline') } : { ok: true }) : eligibility(checkOp, p);
+    job.items[p.id] = { name: p.name, status: el.ok ? 'pending' : 'skipped', msg: el.ok ? t('bk.queued') : el.why, pct: null };
+    if (el.ok) run.push(p);
+  }
+  jobs[id] = job;
+  emitJob(job);
+  if (run.length) runJob(job, run, params).catch((e) => { job.done = true; job.error = String(e.message || e); emitJob(job); });
+  else { job.done = true; emitJob(job); }
+  return job;
+});
+ipcMain.handle('bulk:jobs', () => Object.values(jobs).sort((a, b) => b.created - a.created));
+ipcMain.handle('bulk:stop', (_e, id) => { if (jobs[id]) { jobs[id].cancelRequested = true; emitJob(jobs[id]); } return true; });
+ipcMain.handle('bulk:clear', () => { for (const [k, j] of Object.entries(jobs)) if (j.done) delete jobs[k]; return true; });
 
 // ---------------- Başlat ----------------
 if (!app.requestSingleInstanceLock()) {

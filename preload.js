@@ -10,4 +10,13 @@ contextBridge.exposeInMainWorld('farm', {
   sendTrayImages: (imgs) => ipcRenderer.send('tray:images', imgs),
   wakeCamera: (id) => ipcRenderer.invoke('camera:wake', id),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
+  // operações em massa
+  bulkRun: (op, ids, params) => ipcRenderer.invoke('bulk:run', { op, ids, params }),
+  bulkEligibility: (op, ids) => ipcRenderer.invoke('bulk:eligibility', { op, ids }),
+  bulkPickFiles: () => ipcRenderer.invoke('bulk:pickFiles'),
+  bulkFilesOn: (ids) => ipcRenderer.invoke('bulk:filesOn', ids),
+  bulkJobs: () => ipcRenderer.invoke('bulk:jobs'),
+  bulkStop: (id) => ipcRenderer.invoke('bulk:stop', id),
+  bulkClear: () => ipcRenderer.invoke('bulk:clear'),
+  onJob: (cb) => ipcRenderer.on('bulk:job', (_e, j) => cb(j)),
 });
