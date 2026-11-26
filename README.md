@@ -13,6 +13,46 @@ print percentage.
 Available in **English, Türkçe, Deutsch, Español and Français**. The app follows your Windows
 language by default; you can change it in Settings.
 
+## Farm Manager (v1.2) — operações em massa
+
+Pensado para farms grandes (testado com 50 U1 simuladas), no estilo do Bambu Farm Manager:
+
+- **Visão em lista** com todas as impressoras: estado, progresso, tempo restante, arquivo e os 4 filamentos
+  (tipo + cor). Ordena por qualquer coluna. A visão em cards continua disponível.
+- **Seleção múltipla**: caixa de seleção, clique na linha, Shift+clique para um intervalo, "Selecionar todas"
+  e "Selecionar ociosas".
+- **Grupos** (ex.: "Prateleira A") e filtro por grupo, nome/IP e estado (clique nos contadores do topo).
+- **⬆ Enviar arquivo** para várias impressoras de uma vez (uploads em paralelo, com progresso por máquina).
+  Opcionalmente **já imprime** nas que estão ociosas, com:
+  - **início escalonado** (segundos entre um início e outro), para não dar pico de consumo com todas as
+    mesas aquecendo juntas;
+  - **checagem de filamento**: o app lê o G-code (Snapmaker Orca/Orca), vê quais cabeças ele usa e com qual
+    material, e pula a impressora que estiver com o filamento errado ou sem filamento naquela cabeça.
+- **▶ Imprimir** um arquivo que já está nas impressoras (mostra em quantas ele existe).
+- **⏏ Retirar filamento em massa**: todas as cabeças carregadas ou só as escolhidas, limitando quantas
+  máquinas rodam ao mesmo tempo. Usa a mesma sequência da tela da U1.
+- **🎨 Editar filamento em massa**: tipo, subtipo, marca e cor por cabeça (`SET_PRINT_FILAMENT_CONFIG`, o mesmo
+  comando que a tela usa), com **predefinições** salvas. Atenção: o firmware volta o pressure advance (K) da
+  cabeça para o padrão quando o filamento é gravado.
+- **Pausar / retomar / cancelar / resfriar / luz** em massa.
+- **📋 Tarefas**: cada operação vira uma tarefa com o resultado de cada impressora (ok, erro com o motivo,
+  pulada) e botão para parar. Notificação do Windows quando termina.
+- **Adicionar muitas impressoras de uma vez** nas Configurações: cole `nome;IP;grupo` por linha ou gere uma
+  faixa como `192.168.0.101-150;Prateleira A`.
+- Com mais de 4 impressoras a câmera começa desligada; com mais de 8 a bandeja do Windows usa um único
+  ícone-resumo (número de impressoras imprimindo).
+- Interface em **português (Brasil)**.
+
+Regras de segurança: impressão, retirada e edição de filamento só rodam em impressoras ociosas; cada
+impressora é checada de novo logo antes do comando; uma impressora não recebe duas operações longas ao
+mesmo tempo; para imprimir é preciso confirmar que as mesas estão livres.
+
+### Testes sem impressora
+
+`npm test` roda o `main.js` real contra um simulador de Moonraker da U1 (`test/mock-moonraker.js`) e confere
+envio, impressão escalonada, checagem de filamento, retirada, edição de filamento e pausa/cancelamento.
+`npm run test:ui` abre a interface real no navegador contra o simulador (`SCALE=50` para 50 impressoras).
+
 ## Snapmaker U1 monitoring features
 
 - **Tray icons with live progress.** Each Snapmaker U1 gets its own icon next to the clock. The icon

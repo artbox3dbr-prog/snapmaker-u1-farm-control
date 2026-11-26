@@ -1,7 +1,7 @@
 {
   "name": "u1-farm-control",
   "productName": "U1 Farm Control",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Free Windows app to monitor and control Snapmaker U1 3D printers: live print progress in the system tray, camera, toolheads, filament unload and print controls for a Snapmaker U1 print farm.",
   "keywords": [
     "snapmaker",
@@ -31,7 +31,9 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "dist:dir": "electron-builder --win --dir"
+    "dist:dir": "electron-builder --win --dir",
+    "test": "node -e \"process.env.NODE_PATH='test/stub_modules';require('child_process').execFileSync(process.execPath,['test/harness.js','api'],{stdio:'inherit',env:process.env})\"",
+    "test:ui": "node -e \"process.env.NODE_PATH='test/stub_modules';require('child_process').execFileSync(process.execPath,['test/harness.js','ui'],{stdio:'inherit',env:process.env})\""
   },
   "build": {
     "appId": "com.u1farm.control",
@@ -42,6 +44,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "renderer/**/*",
       "assets/**/*",
       "package.json"

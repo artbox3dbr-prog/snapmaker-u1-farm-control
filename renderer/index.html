@@ -17,6 +17,7 @@
     </div>
     <div class="summary" id="summary"></div>
     <div class="top-actions">
+      <button class="btn ghost" id="btnJobs"><span data-i18n="fm.jobs"></span> <b id="jobsBadge" class="badge-n" hidden>0</b></button>
       <button class="btn ghost" id="btnSettings" data-i18n="btn.settings"></button>
     </div>
   </header>
@@ -27,20 +28,79 @@
     <p data-i18n-html="empty.text"></p>
     <button class="btn primary" id="emptyAdd" data-i18n="add.printer"></button>
   </section>
+  <!-- Barra do farm: visão, filtro, seleção e ações em massa -->
+  <div class="farmbar" id="farmbar" hidden>
+    <div class="seg" id="viewSeg">
+      <button class="tab" data-view="list" data-i18n="fm.viewList"></button>
+      <button class="tab" data-view="cards" data-i18n="fm.viewCards"></button>
+    </div>
+    <select id="groupFilter" class="input sm"></select>
+    <input id="nameFilter" class="input sm" data-i18n-ph="fm.search" />
+    <span class="sep"></span>
+    <button class="btn small ghost" id="selAll" data-i18n="fm.selAll"></button>
+    <button class="btn small ghost" id="selIdle" data-i18n="fm.selIdle"></button>
+    <button class="btn small ghost" id="selNone" data-i18n="fm.selNone"></button>
+    <span class="selcount" id="selCount"></span>
+    <span class="spacer"></span>
+    <div class="bulk-actions" id="bulkActions">
+      <button class="btn small primary" data-bulk="send" data-i18n="fm.send"></button>
+      <button class="btn small" data-bulk="print" data-i18n="fm.printExisting"></button>
+      <button class="btn small" data-bulk="unload" data-i18n="fm.unload"></button>
+      <button class="btn small" data-bulk="filament" data-i18n="fm.filament"></button>
+      <button class="btn small warn" data-bulk="pause" data-i18n="ctl.pause"></button>
+      <button class="btn small good" data-bulk="resume" data-i18n="ctl.resume"></button>
+      <button class="btn small danger" data-bulk="cancel" data-i18n="ctl.cancel"></button>
+      <button class="btn small" data-bulk="more" data-i18n="fm.more"></button>
+    </div>
+  </div>
+  <main id="list" class="list" hidden>
+    <table>
+      <thead><tr>
+        <th class="c-sel"><input type="checkbox" id="selHeader" /></th>
+        <th data-sort="name" data-i18n="set.name"></th>
+        <th data-sort="group" data-i18n="fm.group"></th>
+        <th data-sort="state" data-i18n="fm.colState"></th>
+        <th data-sort="progress" data-i18n="fm.colProgress"></th>
+        <th data-sort="remain" data-i18n="stat.remain"></th>
+        <th data-sort="file" data-i18n="fm.colFile"></th>
+        <th data-i18n="sec.fil"></th>
+        <th></th>
+      </tr></thead>
+      <tbody id="listBody"></tbody>
+    </table>
+  </main>
   <main id="grid" class="grid"></main>
+
+  <!-- Operações em massa / tarefas (conteúdo montado pelo farm.js) -->
+  <dialog id="bulk"><div class="dlg wide" id="bulkBody"></div></dialog>
+  <dialog id="jobs"><div class="dlg wide">
+    <div class="dlg-head"><h2 data-i18n="fm.jobsTitle"></h2><div><button class="btn ghost small" id="jobsClear" data-i18n="fm.jobsClear"></button> <button class="btn ghost small" id="jobsClose">✕</button></div></div>
+    <div id="jobsList" class="files-list"></div>
+  </div></dialog>
 
   <!-- Ayarlar -->
   <dialog id="settings">
     <form method="dialog" class="dlg">
       <h2 data-i18n="set.title"></h2>
       <div id="printerRows"></div>
+      <datalist id="groupList"></datalist>
       <button type="button" class="btn ghost small" id="addPrinter" data-i18n="add.printer"></button>
+      <details class="import">
+        <summary data-i18n="fm.importTitle"></summary>
+        <p class="hint" data-i18n="fm.importHint"></p>
+        <textarea id="importBox" class="input" rows="5" spellcheck="false" placeholder="U1 - 01;192.168.0.101;Prateleira A&#10;U1 - 02;192.168.0.102;Prateleira A"></textarea>
+        <div class="row-actions">
+          <button type="button" class="btn small" id="importRange" data-i18n="fm.importRange"></button>
+          <button type="button" class="btn small primary" id="importApply" data-i18n="fm.importApply"></button>
+        </div>
+      </details>
       <hr />
       <label class="field"><span data-i18n="set.language"></span><select id="optLang" class="input"></select></label>
       <label class="check"><input type="checkbox" id="optTrayPer" /> <span data-i18n="set.trayPer"></span></label>
       <label class="check"><input type="checkbox" id="optNotif" /> <span data-i18n="set.notif"></span></label>
       <label class="check"><input type="checkbox" id="optAutostart" /> <span data-i18n="set.autostart"></span></label>
       <label class="check"><input type="checkbox" id="optStartMin" /> <span data-i18n="set.startMin"></span></label>
+      <label class="field"><span data-i18n="fm.stagger"></span><input type="number" id="optStagger" class="input" min="0" max="600" step="5" /></label>
       <div class="dlg-actions">
         <button class="btn ghost" value="cancel" data-i18n="cancel"></button>
         <button class="btn primary" id="saveSettings" value="ok" data-i18n="save"></button>
@@ -74,5 +134,6 @@
   <canvas id="trayCanvas" width="32" height="32" hidden></canvas>
   <script src="i18n.js"></script>
   <script src="app.js"></script>
+  <script src="farm.js"></script>
 </body>
 </html>

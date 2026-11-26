@@ -8,7 +8,8 @@ const cards = {}; // id -> element
 const camOn = {}; // id -> bool (kamera açık mı) — localStorage'da saklanır
 const camCtl = {}; // id -> { frameTimer, wakeTimer, busy, lastWake }
 function camPref(id) {
-  try { const v = localStorage.getItem('cam:' + id); return v == null ? true : v === '1'; } catch { return true; }
+  const def = (config?.printers?.length || 0) <= 4; // fazendas grandes: câmera desligada por padrão
+  try { const v = localStorage.getItem('cam:' + id); return v == null ? def : v === '1'; } catch { return def; }
 }
 function setCamPref(id, on) { try { localStorage.setItem('cam:' + id, on ? '1' : '0'); } catch {} }
 
@@ -106,10 +107,11 @@ function buildCard(p) {
   el.className = 'card';
   el.innerHTML = `
     <div class="card-head">
+      <label class="sel" title="${t('fm.selectTip')}"><input type="checkbox" data-sel="${esc(p.id)}" /></label>
       <span class="dot" data-f="dot"></span>
       <div class="title">
         <h2>${esc(p.name)}</h2>
-        <div class="host">${esc(p.host)}</div>
+        <div class="host">${esc(p.host)}${p.group ? ` · <span class="grp">${esc(p.group)}</span>` : ''}</div>
       </div>
       <span class="badge" data-f="badge">—</span>
       <button class="btn ghost small" data-a="files" title="${t('tip.files')}">${t('btn.files')}</button>
@@ -162,6 +164,7 @@ function buildCard(p) {
         <div class="fil-actions">
           <button class="btn small" data-a="unloadsel" title="${t('fil.unloadSelTip')}">${t('fil.unloadSel')}</button>
           <button class="btn small" data-a="unloadall" title="${t('fil.unloadAllTip')}">${t('fil.unloadAll')}</button>
+          <button class="btn small" data-a="editfil" title="${t('fm.editFilTip')}">${t('fm.editFil')}</button>
         </div>
         <div class="section-title"><span>${t('sec.env')}</span><span data-f="sys"></span></div>
         <div class="temps">
@@ -201,6 +204,7 @@ function buildCard(p) {
     const s = states[p.id];
     if (a === 'web') return window.farm.openExternal(`http://${p.host}`);
     if (a === 'files') return openFiles(p);
+    if (a === 'editfil') return openBulk('filament', [p.id]);
     if (a === 'cam') { camOn[p.id] = !camOn[p.id]; setCamPref(p.id, camOn[p.id]); return updateCam(p, el, s); }
     if (a === 'full') { f('cam').classList.toggle('fullscreen'); return; }
     if (a === 'pause') return act(p.id, 'pause', null, t('toast.pausing'));
@@ -501,6 +505,7 @@ function updateCard(p, el, s) {
   f('filinfo').textContent = busySet ? t('fil.busy') : active ? t('fil.locked') : t('fil.loadedCount', { n: loadedCount });
   $('[data-a="unloadall"]', el).disabled = active || !!busySet || !loadedCount;
   $('[data-a="unloadsel"]', el).disabled = active || !!busySet;
+  $('[data-a="editfil"]', el).disabled = active || !!busySet;
 
   const bed = S.heater_bed || {};
   f('bed').innerHTML = `${t0(bed.temperature)}°<small> / ${t0(bed.target)}°</small>`;
@@ -544,7 +549,13 @@ function updateSummary() {
     html += `<span class="chip"><span class="dot ${st}"></span>${esc(p.name)}${pct}<span>${eta}</span></span>`;
   }
   const printing = counts.printing || 0;
-  html += `<span class="chip">${t('active')} <b>${printing}/${config.printers.length}</b></span>`;
+  // fazendas grandes: em vez de um chip por impressora, um contador por estado (clicável = filtro)
+  if (config.printers.length > 4) {
+    html = ['printing', 'paused', 'error', 'complete', 'standby', 'cancelled', 'offline'].filter((st) => counts[st])
+      .map((st) => `<span class="chip click${stateFilter === st ? ' on' : ''}" data-stf="${st}"><span class="dot ${st}"></span>${stateName(st)} <b>${counts[st]}</b></span>`).join('');
+  }
+  if (config.printers.length <= 4) html += `<span class="chip">${t('active')} <b>${printing}/${config.printers.length}</b></span>`;
+  else html += `<span class="chip">${t('fm.total')} <b>${config.printers.length}</b></span>`;
   $('#summary').innerHTML = html;
   document.title = printing
     ? 'U1 Farm — ' + config.printers.filter((p) => stateOf(states[p.id]) === 'printing').map((p) => pctText(Math.floor(progressOf(states[p.id]) * 100))).join(' · ')
@@ -568,14 +579,15 @@ function drawTrayIcon(items) {
     rr(0, y + (rows > 1 ? 0.5 : 0), 32, h - (rows > 1 ? 1 : 0), rows > 1 ? 4 : 7);
     g.fillStyle = '#161b22'; g.fill();
     // ilerleme dolgusu (soldan sağa)
-    const showPct = it.st === 'printing' || it.st === 'paused';
+    const showPct = it.st === 'printing' || it.st === 'paused' || it.label != null;
     g.save();
     rr(0, y + (rows > 1 ? 0.5 : 0), 32, h - (rows > 1 ? 1 : 0), rows > 1 ? 4 : 7);
     g.clip();
     if (showPct) {
       g.fillStyle = col;
       g.globalAlpha = 0.85;
-      if (rows === 1) g.fillRect(0, 32 - 32 * it.pct / 100, 32, 32 * it.pct / 100); // aşağıdan yukarı
+      const fr = it.fill ?? it.pct / 100;
+      if (rows === 1) g.fillRect(0, 32 - 32 * fr, 32, 32 * fr); // aşağıdan yukarı
       else g.fillRect(0, y, 32 * it.pct / 100, h);
       g.globalAlpha = 1;
     } else {
@@ -588,7 +600,8 @@ function drawTrayIcon(items) {
 
     // metin
     let text;
-    if (showPct) text = String(it.pct);
+    if (it.label != null) text = it.label;
+    else if (showPct) text = String(it.pct);
     else text = { complete: '✓', error: '!', offline: '×', cancelled: '–', standby: '•' }[it.st] || '•';
     const big = rows === 1;
     let size = big ? (text.length >= 3 ? 15 : 22) : (text.length >= 3 ? 11 : 14);
@@ -615,8 +628,15 @@ function updateTrayIcons() {
   lastTrayKey = key;
   const imgs = {};
   if (!items.length) return; // yazıcı yoksa uygulama ikonu kalır
-  if (config.trayPerPrinter) for (const it of items) imgs[it.id] = drawTrayIcon([it]);
-  else imgs.__main = drawTrayIcon(items.slice(0, 2));
+  const perPrinter = config.trayPerPrinter && items.length <= 8; // igual ao main.js
+  if (perPrinter) for (const it of items) imgs[it.id] = drawTrayIcon([it]);
+  else if (items.length <= 2) imgs.__main = drawTrayIcon(items);
+  else {
+    // ícone-resumo do farm: número de impressoras imprimindo, cor do pior estado
+    const n = items.filter((i) => i.st === 'printing').length;
+    const worst = ['error', 'paused', 'printing', 'complete', 'standby', 'cancelled', 'offline'].find((st) => items.some((i) => i.st === st));
+    imgs.__main = drawTrayIcon([{ st: worst === 'error' || worst === 'paused' ? worst : (n ? 'printing' : worst), pct: n, fill: n / items.length, label: String(n) }]);
+  }
   window.farm.sendTrayImages(imgs);
 }
 
@@ -697,6 +717,7 @@ function printerRow(p) {
   d.dataset.id = p.id;
   d.innerHTML = `<input class="input" data-k="name" placeholder="${t('set.name')}" value="${esc(p.name)}" />
     <input class="input" data-k="host" placeholder="${t('set.ip')}" value="${esc(p.host)}" />
+    <input class="input" data-k="group" placeholder="${t('fm.group')}" value="${esc(p.group || '')}" list="groupList" />
     <button type="button" class="btn ghost small" title="${t('set.remove')}">✕</button>`;
   $('button', d).onclick = () => d.remove();
   return d;
@@ -705,6 +726,9 @@ $('#btnSettings').addEventListener('click', async () => {
   const rows = $('#printerRows');
   rows.innerHTML = '';
   config.printers.forEach((p) => rows.appendChild(printerRow(p)));
+  $('#groupList').innerHTML = groupsOf().map((g) => `<option value="${esc(g)}">`).join('');
+  $('#optStagger').value = config.stagger ?? 20;
+  $('#importBox').value = '';
   $('#optTrayPer').checked = config.trayPerPrinter;
   $('#optNotif').checked = config.notifications;
   $('#optStartMin').checked = config.startMinimized;
@@ -719,6 +743,7 @@ $('#settings').addEventListener('close', async () => {
   if ($('#settings').returnValue !== 'ok') return;
   const printers = $$('#printerRows .prow').map((r) => ({
     id: r.dataset.id, name: $('[data-k=name]', r).value.trim() || t('set.defaultName'), host: $('[data-k=host]', r).value.trim(),
+    group: $('[data-k=group]', r).value.trim(),
   })).filter((p) => p.host);
   config = await window.farm.setConfig({
     printers,
@@ -726,6 +751,7 @@ $('#settings').addEventListener('close', async () => {
     notifications: $('#optNotif').checked,
     startMinimized: $('#optStartMin').checked,
     language: $('#optLang').value,
+    stagger: Math.max(0, Number($('#optStagger').value) || 0),
   });
   await window.farm.setAutostart($('#optAutostart').checked);
   if (I18N.resolve(config.language, navigator.language) !== L.lang) {
@@ -757,6 +783,7 @@ function rebuild() {
     if (!config.printers.find((p) => p.id === id)) { camStop({ id }, cards[id]); cards[id].remove(); delete cards[id]; }
   }
   for (const p of config.printers) {
+    if (!visible(p)) { if (cards[p.id]) { camStop(p, cards[p.id]); cards[p.id].remove(); delete cards[p.id]; } continue; }
     const old = cards[p.id];
     // ad/IP değiştiyse kartı yeniden oluştur
     if (old && (old._name !== p.name || old._host !== p.host)) { camStop(p, old); old.remove(); delete cards[p.id]; }
@@ -767,11 +794,17 @@ function rebuild() {
     }
     grid.appendChild(cards[p.id]);
   }
+  grid.hidden = viewMode() !== 'cards';
+  $('#list').hidden = viewMode() !== 'list' || !config.printers.length;
+  if (viewMode() !== 'cards') for (const id of Object.keys(cards)) { camStop({ id }, cards[id]); cards[id].remove(); delete cards[id]; }
+  onRebuild();
   render();
 }
 
 function render() {
   for (const p of config.printers) if (cards[p.id]) updateCard(p, cards[p.id], states[p.id]);
+  if (viewMode() === 'list') renderList();
+  syncSelection();
   updateSummary();
   updateTrayIcons();
 }
@@ -788,4 +821,5 @@ function render() {
     setTimeout(() => !$('#printerRows').children.length && $('#addPrinter').click(), 50);
   }
   window.farm.onStates((s) => { states = s; render(); });
+  initFarm();
 })();
