@@ -801,12 +801,21 @@ function rebuild() {
   render();
 }
 
+let renderErrShown = false;
+function renderErr(where, e) {
+  console.error(where, e);
+  if (!renderErrShown) { renderErrShown = true; toast(t('error.prefix', { msg: `${where}: ${e?.message || e}` }), true); }
+}
 function render() {
-  for (const p of config.printers) if (cards[p.id]) updateCard(p, cards[p.id], states[p.id]);
-  if (viewMode() === 'list') renderList();
-  syncSelection();
-  updateSummary();
-  updateTrayIcons();
+  // um erro numa impressora não pode travar a atualização das outras
+  for (const p of config.printers) if (cards[p.id]) { try { updateCard(p, cards[p.id], states[p.id]); } catch (e) { renderErr(p.name, e); } }
+  try { if (viewMode() === 'list') renderList(); } catch (e) { renderErr('lista', e); }
+  try { syncSelection(); } catch (e) { renderErr('seleção', e); }
+  try { updateSummary(); } catch (e) { renderErr('resumo', e); }
+  return renderRest();
+}
+function renderRest() {
+  try { updateTrayIcons(); } catch (e) { renderErr('bandeja', e); }
 }
 
 (async () => {

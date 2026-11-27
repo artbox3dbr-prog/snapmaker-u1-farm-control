@@ -12,7 +12,7 @@
       <img src="../assets/icon.png" alt="" />
       <div>
         <h1>U1 Farm Control</h1>
-        <span class="sub" data-i18n="app.subtitle"></span>
+        <span class="sub"><span data-i18n="app.subtitle"></span> <span id="appVer" class="ver"></span></span>
       </div>
     </div>
     <div class="summary" id="summary"></div>
@@ -73,6 +73,10 @@
 
   <!-- Operações em massa / tarefas (conteúdo montado pelo farm.js) -->
   <dialog id="bulk"><div class="dlg wide" id="bulkBody"></div></dialog>
+  <dialog id="diag"><div class="dlg wide">
+    <div class="dlg-head"><h2 data-i18n="dg.title"></h2><div><button class="btn ghost small" id="diagCopy" data-i18n="dg.copy"></button> <button class="btn ghost small" id="diagClose">✕</button></div></div>
+    <div id="diagBody" class="files-list"></div>
+  </div></dialog>
   <dialog id="jobs"><div class="dlg wide">
     <div class="dlg-head"><h2 data-i18n="fm.jobsTitle"></h2><div><button class="btn ghost small" id="jobsClear" data-i18n="fm.jobsClear"></button> <button class="btn ghost small" id="jobsClose">✕</button></div></div>
     <div id="jobsList" class="files-list"></div>
@@ -85,6 +89,7 @@
       <div id="printerRows"></div>
       <datalist id="groupList"></datalist>
       <button type="button" class="btn ghost small" id="addPrinter" data-i18n="add.printer"></button>
+      <button type="button" class="btn ghost small" id="btnDiag" data-i18n="dg.btn"></button>
       <details class="import">
         <summary data-i18n="fm.importTitle"></summary>
         <p class="hint" data-i18n="fm.importHint"></p>

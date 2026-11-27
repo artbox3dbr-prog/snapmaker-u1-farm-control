@@ -6,7 +6,7 @@ const handlers = {}, listeners = {}, sent = [];
 const hub = new EventEmitter();
 const ipcMain = { handle: (c, fn) => (handlers[c] = fn), on: (c, fn) => (listeners[c] = fn) };
 class BrowserWindow extends EventEmitter {
-  constructor() { super(); this.webContents = { send: (ch, data) => { sent.push(ch); hub.emit('send', ch, data); }, setWindowOpenHandler() {} }; }
+  constructor() { super(); this.webContents = { send: (ch, data) => { sent.push(ch); hub.emit('send', ch, data); }, setWindowOpenHandler() {}, on() {}, toggleDevTools() {} }; }
   loadFile() {} isDestroyed() { return false; } isMinimized() { return false; } show() {} focus() {} hide() {} restore() {}
 }
 class Tray { setToolTip() {} setContextMenu() {} setImage() {} on() {} destroy() {} }
@@ -38,7 +38,7 @@ const net = process.env.NONET ? undefined : { fetch: (u, o) => fetch(u, o), requ
 module.exports = {
   app: {
     getPath: () => userData, whenReady: () => Promise.resolve(), requestSingleInstanceLock: () => true, on() {}, setAppUserModelId() {},
-    getLocale: () => 'pt-BR', getLoginItemSettings: () => ({ openAtLogin: false }), setLoginItemSettings() {}, quit() {},
+    getVersion: () => require('../../../package.json').version, getLocale: () => 'pt-BR', getLoginItemSettings: () => ({ openAtLogin: false }), setLoginItemSettings() {}, quit() {},
   },
   BrowserWindow, Tray, Menu: { buildFromTemplate: (t) => t }, nativeImage: { createFromPath: () => img, createFromDataURL: () => img },
   ipcMain, Notification, net, shell: { openExternal() {} },

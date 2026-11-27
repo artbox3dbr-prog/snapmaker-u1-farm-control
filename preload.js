@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('farm', {
   sendTrayImages: (imgs) => ipcRenderer.send('tray:images', imgs),
   wakeCamera: (id) => ipcRenderer.invoke('camera:wake', id),
   openExternal: (url) => ipcRenderer.invoke('open:external', url),
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  diag: () => ipcRenderer.invoke('diag:run'),
   // operações em massa
   bulkRun: (op, ids, params) => ipcRenderer.invoke('bulk:run', { op, ids, params }),
   bulkEligibility: (op, ids) => ipcRenderer.invoke('bulk:eligibility', { op, ids }),

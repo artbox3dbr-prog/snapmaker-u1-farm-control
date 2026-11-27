@@ -75,6 +75,7 @@
       // farm view + bulk operations
       'fm.viewList': '☰ List', 'fm.viewCards': '▦ Cards', 'fm.allGroups': 'All groups', 'fm.search': 'Filter by name, IP, group…',
       'fm.selAll': 'Select all', 'fm.selIdle': 'Select idle', 'fm.selNone': 'Clear', 'fm.selCount': '{n} selected', 'fm.selNoneYet': 'None selected',
+      'dg.btn': '🔎 Connection diagnostics', 'dg.title': 'Connection diagnostics', 'dg.copy': 'Copy result', 'dg.copied': 'Copied — paste it in the chat', 'dg.running': 'Testing each printer on ports 7125 and 80…',
       'fm.total': 'Total', 'fm.selectTip': 'Select for bulk actions', 'fm.selectFirst': 'Select one or more printers first',
       'fm.send': '⬆ Send file', 'fm.printExisting': '▶ Print', 'fm.unload': '⏏ Unload filament', 'fm.filament': '🎨 Edit filament', 'fm.more': '⋯ More',
       'fm.moreTitle': 'More actions ({n} printers)',
@@ -175,6 +176,7 @@
       'err.badHead': 'Cabeça inválida', 'err.unknown': 'Comando desconhecido: {a}', 'err.timeout': 'tempo esgotado',
       'fm.viewList': '☰ Lista', 'fm.viewCards': '▦ Cards', 'fm.allGroups': 'Todos os grupos', 'fm.search': 'Filtrar por nome, IP, grupo…',
       'fm.selAll': 'Selecionar todas', 'fm.selIdle': 'Selecionar ociosas', 'fm.selNone': 'Limpar', 'fm.selCount': '{n} selecionadas', 'fm.selNoneYet': 'Nenhuma selecionada',
+      'dg.btn': '🔎 Diagnóstico de conexão', 'dg.title': 'Diagnóstico de conexão', 'dg.copy': 'Copiar resultado', 'dg.copied': 'Copiado — cole no chat', 'dg.running': 'Testando cada impressora nas portas 7125 e 80…',
       'fm.total': 'Total', 'fm.selectTip': 'Selecionar para ações em massa', 'fm.selectFirst': 'Selecione uma ou mais impressoras primeiro',
       'fm.send': '⬆ Enviar arquivo', 'fm.printExisting': '▶ Imprimir', 'fm.unload': '⏏ Retirar filamento', 'fm.filament': '🎨 Editar filamento', 'fm.more': '⋯ Mais',
       'fm.moreTitle': 'Mais ações ({n} impressoras)',

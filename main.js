@@ -1,7 +1,7 @@
 // U1 Farm Control — Electron ana süreç
 // Yazıcıları Moonraker API üzerinden yoklar, her yazıcı için sistem tepsisinde
 // yüzde gösteren dinamik bir ikon tutar.
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell, dialog, net } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell, dialog, net, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
@@ -87,7 +87,7 @@ async function pollPrinter(p) {
     s = { online: klippy !== 'offline', klippy, error: String(e.message || e), status: null, meta: null, ts: Date.now() };
   }
   states[p.id] = s;
-  handleTransitions(p, prev, s);
+  try { handleTransitions(p, prev, s); } catch (e) { console.error('transitions', e); }
   return s;
 }
 
@@ -135,7 +135,7 @@ function handleTransitions(p, prev, s) {
 async function pollAll() {
   await Promise.all(config.printers.map(pollPrinter));
   if (win && !win.isDestroyed()) win.webContents.send('states', states);
-  updateTrays();
+  try { updateTrays(); } catch (e) { console.error('trays', e); }
 }
 
 // ---------------- Tepsi ikonları ----------------
@@ -256,6 +256,10 @@ function createWindow() {
   win.on('minimize', (e) => { e.preventDefault(); win.hide(); });
   win.on('close', (e) => { if (!quitting) { e.preventDefault(); win.hide(); } });
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // F12 / Ctrl+Shift+I: ferramentas de desenvolvedor (diagnóstico)
+  win.webContents.on('before-input-event', (_e, i) => {
+    if (i.type === 'keyDown' && (i.key === 'F12' || (i.control && i.shift && String(i.key).toUpperCase() === 'I'))) win.webContents.toggleDevTools();
+  });
 }
 
 // ---------------- Kamera ----------------
@@ -284,6 +288,20 @@ ipcMain.handle('camera:wake', (_e, id) => {
 
 // ---------------- IPC ----------------
 ipcMain.handle('config:get', () => config);
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), transport: bulk.transportName() }));
+// Diagnóstico de conexão: testa cada impressora pela porta 7125 e 80, com os dois transportes
+ipcMain.handle('diag:run', async () => {
+  const out = { version: app.getVersion(), platform: `${process.platform} ${process.getSystemVersion?.() || ''}`, transports: bulk.transportNames(), printers: [] };
+  await bulk.runPool(config.printers, 10, async (p) => {
+    const host = p.host.replace(/:\d+$/, '');
+    const r = { name: p.name, host: p.host, state: stateOf(states[p.id]), lastError: states[p.id]?.error || '', tests: [] };
+    const own = (p.host.match(/:(\d+)$/) || [])[1];
+    for (const port of [...new Set([own, 7125, 80].filter(Boolean).map(Number))]) for (const tr of bulk.transportNames()) r.tests.push({ path: `${tr} :${port}`, ...(await bulk.probe(`${host}:${port}`, tr)) });
+    if (session?.defaultSession?.resolveProxy) { try { r.proxy = await session.defaultSession.resolveProxy(`http://${host}:7125/`); } catch {} }
+    out.printers.push(r);
+  });
+  return out;
+});
 ipcMain.handle('config:set', (_e, c) => {
   config = { ...config, ...c };
   saveConfig();

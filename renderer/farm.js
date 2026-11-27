@@ -579,3 +579,28 @@ function initFarm() {
   onRebuild();
   syncSelection();
 }
+
+// ---------------- versão + diagnóstico de conexão ----------------
+window.farm.appInfo?.().then((i) => { $('#appVer').textContent = 'v' + i.version; }).catch(() => {});
+let diagText = '';
+$('#btnDiag').addEventListener('click', async () => {
+  $('#diagBody').innerHTML = `<div class="offline-box">${t('dg.running')}</div>`;
+  $('#diag').showModal();
+  try {
+    const r = await window.farm.diag();
+    const lines = [`U1 Farm Control v${r.version} · ${r.platform} · ${r.transports.join(', ')}`];
+    const html = r.printers.map((p) => {
+      lines.push(`\n${p.name} (${p.host}) — ${p.state}${p.lastError ? ' — ' + p.lastError : ''}${p.proxy ? ' — proxy: ' + p.proxy : ''}`);
+      p.tests.forEach((x) => lines.push(`  ${x.ok ? 'OK ' : 'ERRO'} ${x.path}: ${x.msg}`));
+      return `<div class="job"><div class="jrows" style="padding-top:10px"><b>${esc(p.name)}</b> <span class="mut">${esc(p.host)} · ${esc(p.proxy || '')}</span>
+        ${p.tests.map((x) => `<div class="jrow ${x.ok ? 'ok' : 'error'}"><span>${x.ok ? '✅' : '⛔'}</span><b>${esc(x.path)}</b><span class="jmsg">${esc(x.msg)}</span></div>`).join('')}</div></div>`;
+    }).join('');
+    diagText = lines.join('\n');
+    $('#diagBody').innerHTML = `<p class="mut">${esc(lines[0])}</p>${html}`;
+  } catch (e) {
+    diagText = String(e.message || e);
+    $('#diagBody').innerHTML = `<div class="offline-box">${esc(diagText)}</div>`;
+  }
+});
+$('#diagCopy').addEventListener('click', () => { navigator.clipboard.writeText(diagText).then(() => toast(t('dg.copied'))); });
+$('#diagClose').addEventListener('click', () => $('#diag').close());
