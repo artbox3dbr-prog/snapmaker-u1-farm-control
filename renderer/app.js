@@ -404,7 +404,7 @@ function updateCard(p, el, s) {
   if (offline) {
     if (camCtl[p.id]) camStop(p, el);
     f('offmsg').textContent = st === 'offline'
-      ? t('off.msg', { host: p.host })
+      ? t('off.msg', { host: p.host }) + (s?.error ? `\n${t('off.detail', { e: s.error })}` : '')
       : t('off.klippy', { s: s?.klippy, e: s?.error || '' });
     return;
   }
