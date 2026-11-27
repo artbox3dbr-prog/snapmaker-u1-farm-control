@@ -1,7 +1,7 @@
 {
   "name": "u1-farm-control",
   "productName": "U1 Farm Control",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Free Windows app to monitor and control Snapmaker U1 3D printers: live print progress in the system tray, camera, toolheads, filament unload and print controls for a Snapmaker U1 print farm.",
   "keywords": [
     "snapmaker",

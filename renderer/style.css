@@ -334,3 +334,4 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 .dlg .field input[type=number] { max-width: 110px; }
 #printerRows { max-height: 42vh; overflow: auto; padding-right: 4px; }
 #settings .dlg { width: 760px; }
+[data-f="offmsg"] { white-space: pre-line; }

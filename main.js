@@ -1,7 +1,7 @@
 // U1 Farm Control — Electron ana süreç
 // Yazıcıları Moonraker API üzerinden yoklar, her yazıcı için sistem tepsisinde
 // yüzde gösteren dinamik bir ikon tutar.
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, shell, dialog, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
@@ -43,18 +43,8 @@ function saveConfig() {
 }
 
 // ---------------- Moonraker ----------------
-async function api(host, pathName, opts = {}) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), opts.timeout || 4000);
-  try {
-    const r = await fetch(`http://${bulk.hostPort(host)}${pathName}`, { method: opts.method || 'GET', signal: ctrl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j?.error?.message || `HTTP ${r.status}`);
-    return j.result;
-  } finally {
-    clearTimeout(t);
-  }
-}
+// Toda a comunicação passa pelo lib/bulk.js (net do Electron com reserva no fetch do Node)
+const api = (host, pathName, opts = {}) => bulk.api(host, pathName, opts);
 
 const QUERY_OBJECTS = [
   'print_stats', 'display_status', 'virtual_sdcard', 'heater_bed', 'extruder', 'extruder1', 'extruder2', 'extruder3',
@@ -585,6 +575,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', showWindow);
   app.setAppUserModelId('com.u1farm.control');
   app.whenReady().then(() => {
+    // mesma pilha de rede do navegador (proxy/configurações do Windows); o fetch do Node vira reserva
+    if (net && typeof net.fetch === 'function') bulk.setTransport({ fetch: (u, o) => net.fetch(u, o), request: (o) => net.request(o) });
     config = loadConfig();
     applyLanguage();
     startHidden = process.argv.includes('--hidden');
