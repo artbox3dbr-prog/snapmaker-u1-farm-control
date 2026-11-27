@@ -142,7 +142,7 @@ function ui() {
     return { onStates: (cb) => on('states', cb), getConfig: () => call('config:get'), setConfig: (c) => call('config:set', c),
       getAutostart: () => call('autostart:get'), setAutostart: (o) => call('autostart:set', o),
       action: (id, action, value) => call('printer:action', { id, action, value }), sendTrayImages: () => {}, wakeCamera: () => Promise.resolve({ ok: false }),
-      openExternal: () => {}, bulkRun: (op, ids, params) => call('bulk:run', { op, ids, params }), bulkEligibility: (op, ids) => call('bulk:eligibility', { op, ids }),
+      openExternal: () => {}, appInfo: () => call('app:info'), diag: () => call('diag:run'), bulkRun: (op, ids, params) => call('bulk:run', { op, ids, params }), bulkEligibility: (op, ids) => call('bulk:eligibility', { op, ids }),
       bulkPickFiles: () => call('bulk:pickFiles'), bulkFilesOn: (ids) => call('bulk:filesOn', ids), bulkJobs: () => call('bulk:jobs'),
       bulkStop: (id) => call('bulk:stop', id), bulkClear: () => call('bulk:clear'), onJob: (cb) => on('bulk:job', cb) };
   })();`;

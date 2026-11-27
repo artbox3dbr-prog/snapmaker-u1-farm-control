@@ -335,3 +335,4 @@ dialog::backdrop { background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
 #printerRows { max-height: 42vh; overflow: auto; padding-right: 4px; }
 #settings .dlg { width: 760px; }
 [data-f="offmsg"] { white-space: pre-line; }
+.ver { color: var(--accent); font-size: 11px; margin-left: 6px; }
